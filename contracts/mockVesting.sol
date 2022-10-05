@@ -6,38 +6,34 @@ import '@openzeppelin/contracts/access/Ownable.sol';
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 
 /* TO DO:
- * - Add withdraw function
  * - implement vesting parameters - probably an updateVestedBalances() function or modifier
  * 
  * - Clean up comments
  */
 
 contract MockVesting is Ownable {
-
+    //Address of recipient of vested tokens
     address private immutable beneficiary;
-
+    //Token Balances
     //token address => token balance
     mapping(address => uint256) private initialBalances;
-    //list of token addresses
-    address[] tokens;
+    mapping(address => uint256) private claimableBalances;
+    mapping(address => uint256) private claimedBalances;
+    // list of token addresses
+    address[] public tokens;
+    //Non-ERC20 ETH balances
     uint256 private initialEthBalance;
     uint256 private claimableEthBalance;
     uint256 private claimedEthBalance;
-    mapping(address => uint256) private claimableBalances;
-    mapping(address => uint256) private claimedBalances;
 
-    //do I want to do raw token numbers for vested tokens or do I want to do
-    //a percentage of tokens that are unlocked? percentage would use less
-    //memory (no mapping required) and could also apply to ETH. I probably
-    //WOULD need another mapping though to account for either initial balances
-    //or tokens already paid out
-
-    bool private isFunded;
-
-    bool private vestingParamsSet;
-    uint256 private unlockStartTime;
-    uint256 private unlockEndTime; 
-    uint8 private vestingCoefficient;
+    
+    //Variable to track whether fund function has been called
+    bool public isFunded;
+    //variable to track whether setVestingParams has been called
+    bool public vestingParamsSet;
+    uint256 public unlockStartTime;
+    uint256 public unlockEndTime; 
+    uint8 public vestingCoefficient;
 
 
     constructor(address _beneficiary) {
@@ -49,9 +45,9 @@ contract MockVesting is Ownable {
     // Fund //
     //////////
 
-    //ethAmount optional - see function below
+    //ethAmount optional - see overload function below
     function fund(address[] calldata _tokens, uint256[] calldata _amounts, uint256 ethAmount) public payable onlyOwner {
-        require(isFunded == false, 'Contract has already been funded.');
+        require(!isFunded, 'Contract has already been funded.');
         require(vestingParamsSet, 'Please set vesting parameters before funding');
         require(msg.value == ethAmount, 'Please send exact amount of eth specified.'); 
         require(_tokens.length == _amounts.length, 'Be sure to specify an amount for each token being deposited!');
@@ -79,7 +75,7 @@ contract MockVesting is Ownable {
         isFunded = true;
     }
 
-    //function overrides if no ethAmount specified
+    //This overload function is called if no ethAmount specified
     function fund(address[] calldata _tokens, uint256[] calldata _amounts) public payable onlyOwner {
         require(isFunded == false, 'Contract has already been funded.');
         require(vestingParamsSet, 'Please set vesting parameters before funding');
@@ -110,21 +106,29 @@ contract MockVesting is Ownable {
     //////////////
 
     //withdraw all available vested tokens
-    function withdraw() public {
+    function withdraw() public updateVestedBalances {
         require(msg.sender == beneficiary, 'Only the beneficiary can withdraw tokens.');
-        for(uint8 i = 0; i <tokens.length; i++) {
-            //pretened vestedbalances is a mapping - replace with however I decide to implement
-            
+        for(uint8 i = 0; i < tokens.length; i++) {
+            IERC20(tokens[i]).transfer(msg.sender,claimableBalances[tokens[i]]);
+            claimableBalances[tokens[i]] = 0;
         }
         //also need to account for vested eth if there is any.
-        if(vestedEth > 0)
+        if(claimableEthBalance > 0) {
+            //send eth to beneficiary
+            payable(msg.sender).transfer(claimableEthBalance);
+            claimableEthBalance = 0;
+        }
     }
 
     ////////////////////////////
     // Update Vested Balances //
     ////////////////////////////
 
+    modifier updateVestedBalances {
+        ///code
 
+        _;
+    }
 
 
     ////////////////////////////
@@ -138,27 +142,27 @@ contract MockVesting is Ownable {
      *   Tokens will unlock linearly from start time with cliff to full unlock at end time if any tokens remaining
      */
     function setVestingParams(uint256 _unlockStartTime) public onlyOwner {
-        require(vestingParamsSet == false, 'You have already set vesting parameters.');
+        require(!vestingParamsSet, 'You have already set vesting parameters.');
         unlockStartTime = _unlockStartTime;
     }
 
     function setVestingParams(uint256 _unlockStartTime, uint256 _unlockEndTime) public onlyOwner {
-        require(vestingParamsSet == false, 'You have already set vesting parameters.');
+        require(!vestingParamsSet, 'You have already set vesting parameters.');
         unlockStartTime = _unlockStartTime;
         unlockEndTime = _unlockEndTime;
     }
 
     function setVestingParams(uint256 _unlockStartTime, uint256 _unlockEndTime, uint8 _vestingCoefficient) public onlyOwner {
-        require(vestingParamsSet == false, 'You have already set vesting parameters.');
+        require(!vestingParamsSet, 'You have already set vesting parameters.');
         unlockStartTime = _unlockStartTime;
         unlockEndTime = _unlockEndTime;
         vestingCoefficient = _vestingCoefficient;
     }
 
 
-    //////////////////////
-    // Getter Functions //
-    //////////////////////
+    /////////////////
+    // Get Balance // Returns total remaining balance
+    /////////////////
 
     //need to change to specify vested or unvested.
     //balance must be checked one token at a time
@@ -175,8 +179,21 @@ contract MockVesting is Ownable {
             msg.sender == beneficiary || msg.sender == owner(),
             'Only the owner and beneficiary are allowed to access this information.'
         );
-        return intiialEthBalance - claimedEthBalance;
+        return initialEthBalance - claimedEthBalance;
     }
 
+    ///////////////////////////
+    // Get Claimable Balance // returns vested, claimable token balance
+    ///////////////////////////
+
+    // put anything into the updateBalances slot to have it run the updateBalance modifier
+    // ignore completely to run the below overload function which is view-only/gas-free
+    function getClaimableBalance(address tokenAddress, bytes calldata /*updateBalances*/) public updateVestedBalances returns (uint256){
+        return claimableBalances[tokenAddress];
+    }
+
+    function getClaimableBalance(address tokenAddress) public view returns (uint256) {
+        return claimableBalances[tokenAddress];
+    }
 
 }
