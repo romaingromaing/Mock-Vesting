@@ -289,9 +289,9 @@ contract MockVesting is Ownable {
     }
 
 
-    /////////////////
-    // Get Balance // Returns unvested balance
-    /////////////////
+    //////////////////////////
+    // Get Unvested Balance // Returns unvested balance
+    //////////////////////////
 
     //balance must be checked one token at a time
     function getUnvestedBalance(address tokenAddress) public view returns (uint256){
