@@ -6,14 +6,13 @@ import '@openzeppelin/contracts/access/Ownable.sol';
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 
 /* TO DO:
- * - implement vesting parameters - probably an updateVestedBalances() function or modifier
- * - add ETH to modifier
- * - finish last part of modifier
  * - I guess differences in token decimals gotta be taken into account
  *                    -do they though? I actually don't think so. 
  *                    -but if desired, could do a conversion factor within the modifier function
  *                    -only real difference is some tokens might vest faster than others but it shouldn't be a breaking issue,
  *                     all the code sees is the numbers, it doesn't matter how much makes a 'whole' token       
+ * - vestedBalances should be the same for every token - do I really need a mapping?
+ *          - i.e. is there a scenerio where there would be an issue if a fully vested token had a vested balance higher than its total balance?
  * - Clean up comments and code
  * I kind of like the idea of transferring ownership to the beneficiary at the end of fund() but it probably doesn't matter
  * I'd be able to just do onlyOwner for all the require msg.sender == beneficiary stuff though.
@@ -170,10 +169,11 @@ contract MockVesting is Ownable {
             }
             if(block.timestamp >= unlockStartTime) {
                 uint256 tokensClaimable = vestingSlope * (block.timestamp - lastUpdated); // tokens/second * time elapsed
+                uint256 remainingBalance;
                 for(uint8 i = 0; i < tokens.length; i++) {
                     //need to check if each individual token has enough tokens left! 
                     //Tokens with starting balances below the max will run out before the unlockEndTime
-                    uint256 remainingBalance = initialBalances[tokens[i]] - vestedBalances[tokens[i]];
+                    remainingBalance = initialBalances[tokens[i]] - vestedBalances[tokens[i]];
                     // if remaining balance > tokensClaimable, add full amount to claimableBalances
                     if(remainingBalance >= tokensClaimable) {
                         claimableBalances[tokens[i]] += tokensClaimable;
@@ -186,6 +186,20 @@ contract MockVesting is Ownable {
                     }               
                     // if remaining balance is zero, do nothing
                 }
+                //now handle eth
+                remainingBalance = initialEthBalance - vestedEthBalance;
+                // if remaining balance > tokensClaimable, add full amount to claimableBalances
+                if(remainingBalance >= tokensClaimable) {
+                    claimableEthBalance += tokensClaimable;
+                    vestedEthBalance += tokensClaimable;
+                }
+                // if there are remaining tokens but less than tokensClaimable, only add the remaining tokens to claimableBalances
+                else if (remainingBalance > 0 && remainingBalance < tokensClaimable){
+                    claimableEthBalance += remainingBalance;
+                    vestedEthBalance += remainingBalance;
+                }               
+                // if remaining balance is zero, do nothing
+
             }
         }
         else {
@@ -195,10 +209,11 @@ contract MockVesting is Ownable {
             }
             if(block.timestamp >= unlockStartTime && block.timestamp < unlockEndTime) {
                 uint256 tokensClaimable = vestingSlope * (block.timestamp - lastUpdated); // tokens/second * time elapsed
+                uint256 remainingBalance;
                 for(uint8 i = 0; i < tokens.length; i++) {
                     //need to check if each individual token has enough tokens left! 
                     //Tokens with starting balances below the max will run out before the unlockEndTime
-                    uint256 remainingBalance = initialBalances[tokens[i]] - vestedBalances[tokens[i]];
+                    remainingBalance = initialBalances[tokens[i]] - vestedBalances[tokens[i]];
                     // if remaining balance > tokensClaimable, add full amount to claimableBalances
                     if(remainingBalance >= tokensClaimable) {
                         claimableBalances[tokens[i]] += tokensClaimable;
@@ -214,6 +229,14 @@ contract MockVesting is Ownable {
             }
             else if(block.timestamp >= unlockEndTime) {
                 // all tokens unlocked
+                uint256 remainingBalance;
+                for(uint8 i = 0; i < tokens.length; i++) {
+                    remainingBalance = initialBalances[tokens[i]] - vestedBalances[tokens[i]];
+                    claimableBalances[tokens[i]] += remainingBalance;
+                    vestedBalances[tokens[i]] += remainingBalance;
+                }
+                claimableEthBalance += initialEthBalance - vestedEthBalance;
+                vestedEthBalance = initialEthBalance; //difference between initial and vested should now be zero
             }
 
         }
@@ -247,7 +270,7 @@ contract MockVesting is Ownable {
         vestingParamsSet = true;
     }
 
-    function setVestingParams(uint256 _unlockStartTime, uint256 _unlockEndTime, uint8 _vestingCoefficient) public onlyOwner {
+    function setVestingParams(uint256 _unlockStartTime, uint256 _unlockEndTime, uint256 _vestingCoefficient) public onlyOwner {
         require(!vestingParamsSet, 'You have already set vesting parameters.');
         unlockStartTime = _unlockStartTime;
         unlockEndTime = _unlockEndTime;
@@ -257,24 +280,24 @@ contract MockVesting is Ownable {
 
 
     /////////////////
-    // Get Balance // Returns total remaining/unclaimed balance
+    // Get Balance // Returns tunvested balance
     /////////////////
 
     //balance must be checked one token at a time
-    function getBalance(address tokenAddress) public view returns (uint256){
+    function getUnvestedBalance(address tokenAddress) public view returns (uint256){
         require( //let's keep salary details private!
             msg.sender == beneficiary || msg.sender == owner(),
             'Only the owner and beneficiary are allowed to access this information.'
         );
-        return initialBalances[tokenAddress] - claimedBalances[tokenAddress];
+        return initialBalances[tokenAddress] - vestedBalances[tokenAddress];
     }
     //if params are left empty, return ETH balance
-    function getBalance() public view returns (uint256){
+    function getUnvestedBalance() public view returns (uint256){
         require( //let's keep salary details private!
             msg.sender == beneficiary || msg.sender == owner(),
             'Only the owner and beneficiary are allowed to access this information.'
         );
-        return initialEthBalance - claimedEthBalance;
+        return initialEthBalance - vestedEthBalance;
     }
 
     ///////////////////////////
