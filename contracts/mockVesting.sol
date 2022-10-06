@@ -5,52 +5,60 @@ pragma solidity ^0.8.0;
 import '@openzeppelin/contracts/access/Ownable.sol';
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 
-/* TO DO:
- * - I guess differences in token decimals gotta be taken into account
- *                    -do they though? I actually don't think so. 
- *                    -but if desired, could do a conversion factor within the modifier function
- *                    -only real difference is some tokens might vest faster than others but it shouldn't be a breaking issue,
- *                     all the code sees is the numbers, it doesn't matter how much makes a 'whole' token       
- * - vestedBalances should be the same for every token - do I really need a mapping?
- *          - i.e. is there a scenerio where there would be an issue if a fully vested token had a vested balance higher than its total balance?
- * - Clean up comments and code
- * I kind of like the idea of transferring ownership to the beneficiary at the end of fund() but it probably doesn't matter
- * I'd be able to just do onlyOwner for all the require msg.sender == beneficiary stuff though.
- * can I even call it from within the function? I'll try once I get there. 
- * - it SHOULD work because msg.sender is still the same - it doesn't become the contract unless it calls an external contract's function
- */
 
 contract MockVesting is Ownable {
+    /////////////////////
+    // State Variables //
+    /////////////////////
+
     //Address of recipient of vested tokens
     address private immutable beneficiary;
+
     //Token Balances
     //token address => token balance
+    //initially funded token amounts (tracked by token)
     mapping(address => uint256) private initialBalances;
+    //vested tokens available for claiming (tracked by token)
     mapping(address => uint256) private claimableBalances;
+    //Total vested tokens (including those already claimed) (tracked by token)
     mapping(address => uint256) private vestedBalances;
+
     // list of token addresses
     address[] public tokens;
-    //Non-ERC20 ETH balances
-    uint256 private initialEthBalance;
-    uint256 private claimableEthBalance;
-    uint256 private vestedEthBalance;
 
+    //Non-ERC20 ETH balances
+    //Initially funded ETH amount
+    uint256 private initialEthBalance;
+    //Vested ETH available for claiming
+    uint256 private claimableEthBalance;
+    //Total vested ETH (including those already claimed)
+    uint256 private vestedEthBalance;
     
     //Variable to track whether fund function has been called
     bool public isFunded;
     //variable to track whether setVestingParams has been called
     bool public vestingParamsSet;
+    // Start of unlock period (seconds since unix epoch)
     uint256 public unlockStartTime;
+    // End of unlock period (seconds since unix epoch)
     uint256 public unlockEndTime; 
+    // token emissions per second
     uint256 public vestingCoefficient;
+    // token emissions per second - same as vestingCoefficient if there is one
     uint256 public vestingSlope;
-    uint256 private maxTokenBalance;//calculated during fund(), used to calculate vestingSlope in updateVestedBalances modifier
-    uint256 private lastUpdated; //last timestamp of updateVestedBalances call
+    // Highest token balance - calculated during fund(), used to calculate vestingSlope in updateVestedBalances modifier
+    uint256 private maxTokenBalance;
+    //last timestamp of updateVestedBalances call
+    uint256 private lastUpdated; 
+
+
+    /////////////////
+    // Constructor //
+    /////////////////
 
     constructor(address _beneficiary) {
         beneficiary = _beneficiary;
     }
-
 
     //////////
     // Fund //
@@ -77,12 +85,12 @@ contract MockVesting is Ownable {
                 'You must approve spending for tokens being deposited'
             );
             bool depositTx = IERC20(_tokens[i]).transferFrom(msg.sender,address(this),_amounts[i]);
-            require(depositTx == true, 'Token deposit transaction failed');
+            require(depositTx, 'Token deposit transaction failed');
             if(_amounts[i] > maxTokenBalance){ //this is used to calculate vestingSlope later
                 maxTokenBalance = _amounts[i];
             }
             initialBalances[_tokens[i]] += _amounts[i];
-            //using += instead of = to account for idiotic scenerio where somebody
+            //using += instead of = to account for scenerio where somebody
             //uses the same token address twice in the _tokens array. As long as they have
             //tokens available, we'll accept that. And since default value for mapping is zero,
             //+= is essentially the same as = for new token deposits.
@@ -112,7 +120,7 @@ contract MockVesting is Ownable {
                 'You must approve spending for tokens being deposited'
             );
             bool depositTx = IERC20(_tokens[i]).transferFrom(msg.sender,address(this),_amounts[i]);
-            require(depositTx == true, 'Token deposit transaction failed');
+            require(depositTx, 'Token deposit transaction failed');
             if(_amounts[i] > maxTokenBalance){ //this is used to calculate vestingSlope later
                 maxTokenBalance = _amounts[i];
             }
@@ -129,15 +137,16 @@ contract MockVesting is Ownable {
     //withdraw all available vested tokens
     function withdraw() public updateVestedBalances {
         require(msg.sender == beneficiary, 'Only the beneficiary can withdraw tokens.');
+        uint256 amount;
         for(uint8 i = 0; i < tokens.length; i++) {
-            uint256 amount = claimableBalances[tokens[i]];
+            amount = claimableBalances[tokens[i]];
             claimableBalances[tokens[i]] = 0;
             IERC20(tokens[i]).transfer(msg.sender, amount);
         }
         //also need to account for vested eth if there is any.
         if(claimableEthBalance > 0) {
             //send eth to beneficiary
-            uint256 amount = claimableEthBalance; 
+            amount = claimableEthBalance; 
             claimableEthBalance = 0;
             payable(msg.sender).transfer(amount);
         }
@@ -161,7 +170,7 @@ contract MockVesting is Ownable {
             }
         }
         // if unlockEndTime is nonzero but vestingCoefficient is zero, 
-        // linear unlock w/o cliff
+        // linear unlock without cliff
         else if(vestingCoefficient == 0){
             if(vestingSlope == 0) { //calculate vestingSlope the first time modifier is called
                 vestingSlope = maxTokenBalance / (unlockEndTime - unlockStartTime); // dt/ds, tokens/second
@@ -169,7 +178,7 @@ contract MockVesting is Ownable {
             }
             if(block.timestamp >= unlockStartTime) {
                 uint256 tokensClaimable = vestingSlope * (block.timestamp - lastUpdated); // tokens/second * time elapsed
-                uint256 remainingBalance;
+                uint256 remainingBalance; //balance of unvested tokens
                 for(uint8 i = 0; i < tokens.length; i++) {
                     //need to check if each individual token has enough tokens left! 
                     //Tokens with starting balances below the max will run out before the unlockEndTime
@@ -202,7 +211,7 @@ contract MockVesting is Ownable {
 
             }
         }
-        else {
+        else { //Linear unlock with cliff
             if(vestingSlope == 0) { //calculate vestingSlope the first time modifier is called
                 vestingSlope = vestingCoefficient; // dt/ds, tokens/second
                 lastUpdated = unlockStartTime; //we want the initial value of lastUpdated to be unlockStartTime for calculations
@@ -238,7 +247,6 @@ contract MockVesting is Ownable {
                 claimableEthBalance += initialEthBalance - vestedEthBalance;
                 vestedEthBalance = initialEthBalance; //difference between initial and vested should now be zero
             }
-
         }
         _;
     }
@@ -253,8 +261,10 @@ contract MockVesting is Ownable {
      *                                                       tokens is zero at end time
      * - If calling with unlockStartTime, unlockEndTime, and vestingCoefficient -
      *   Tokens will unlock linearly from start time with cliff to full unlock at end time if any tokens remaining
+     *
+     * - note that all times are calculated as # of seconds since unix epoch (00:00:00 UTC on 1 January 1970)
      */
-    // note that all times are calculated as # of seconds since unix epoch (00:00:00 UTC on 1 January 1970)
+
     function setVestingParams(uint256 _unlockStartTime) public onlyOwner {
         require(!vestingParamsSet, 'You have already set vesting parameters.');
         unlockStartTime = _unlockStartTime;
@@ -280,20 +290,20 @@ contract MockVesting is Ownable {
 
 
     /////////////////
-    // Get Balance // Returns tunvested balance
+    // Get Balance // Returns unvested balance
     /////////////////
 
     //balance must be checked one token at a time
     function getUnvestedBalance(address tokenAddress) public view returns (uint256){
-        require( //let's keep salary details private!
+        require( //let's keep payment details private!
             msg.sender == beneficiary || msg.sender == owner(),
             'Only the owner and beneficiary are allowed to access this information.'
         );
         return initialBalances[tokenAddress] - vestedBalances[tokenAddress];
     }
-    //if params are left empty, return ETH balance
+    //Call function with no params to get ETH balance
     function getUnvestedBalance() public view returns (uint256){
-        require( //let's keep salary details private!
+        require( //let's keep payment details private!
             msg.sender == beneficiary || msg.sender == owner(),
             'Only the owner and beneficiary are allowed to access this information.'
         );
@@ -307,7 +317,7 @@ contract MockVesting is Ownable {
     // put anything into the updateBalances slot to have it run the updateBalance modifier
     // ignore completely to run the below overload function which is view-only/gas-free
     function getClaimableBalance(address tokenAddress, bytes calldata /*updateBalances*/) public updateVestedBalances returns (uint256){
-         require( //let's keep salary details private!
+         require( //let's keep payment details private!
             msg.sender == beneficiary || msg.sender == owner(),
             'Only the owner and beneficiary are allowed to access this information.'
         );
@@ -315,7 +325,7 @@ contract MockVesting is Ownable {
     }
 
     function getClaimableBalance(address tokenAddress) public view returns (uint256) {
-         require( //let's keep salary details private!
+         require( //let's keep payment details private!
             msg.sender == beneficiary || msg.sender == owner(),
             'Only the owner and beneficiary are allowed to access this information.'
         );
