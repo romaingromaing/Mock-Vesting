@@ -156,6 +156,9 @@ contract MockVesting is Ownable {
     // Update Vested Balances //
     ////////////////////////////
 
+    //Handles 3 vesting scenerios laid out in setVestingParams()
+    //Is called before withdraw() or optionally when calling getClaimableBalance()
+
     modifier updateVestedBalances {
         //check if end time and coefficient were set => they'll be zero if not.
         //if both are unset, do a full, instant unlock at unlockStartTime
