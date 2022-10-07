@@ -8,7 +8,8 @@
     "lint:fix": "solhint 'contracts/**/*.sol' --fix",
     "format": "prettier --write .",
     "coverage": "hardhat coverage",
-    "test": "hardhat test"
+    "test": "hardhat test",
+    "deploy": "hardhat run ./deploy/deployMockVesting.js"
   },
   "devDependencies": {
     "@chainlink/contracts": "^0.4.0",

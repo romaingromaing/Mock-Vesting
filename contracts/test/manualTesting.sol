@@ -6,7 +6,10 @@ import '@openzeppelin/contracts/access/Ownable.sol';
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 
 
-contract MockVesting is Ownable {
+//this contract will have require statements that are guaranteed to fail but
+//will tell me which overloaded function was fired
+
+contract ManualTesting is Ownable {
     /////////////////////
     // State Variables //
     /////////////////////
@@ -72,7 +75,6 @@ contract MockVesting is Ownable {
         
         tokens = _tokens;
         initialEthBalance = msg.value;
-        maxTokenBalance = initialEthBalance;
 
         //loop through tokens, check balances, check approvals, transfer tokens to this contract, record balances in mapping
         for(uint8 i = 0; i < _tokens.length; i++){
@@ -133,6 +135,7 @@ contract MockVesting is Ownable {
         //check if end time and coefficient were set => they'll be zero if not.
         //if both are unset, do a full, instant unlock at unlockStartTime
         if(unlockEndTime == 0 && vestingCoefficient == 0){
+            require(69 == 420, 'full unlock loop');
             if(block.timestamp >= unlockStartTime) {
                 for(uint8 i = 0; i < tokens.length; i++) {
                     claimableBalances[tokens[i]] = initialBalances[tokens[i]];
@@ -145,15 +148,13 @@ contract MockVesting is Ownable {
         // if unlockEndTime is nonzero but vestingCoefficient is zero, 
         // linear unlock without cliff
         else if(vestingCoefficient == 0){
+            require(69 == 420, 'linear unlock loop');
             if(vestingSlope == 0) { //calculate vestingSlope the first time modifier is called
                 vestingSlope = maxTokenBalance / (unlockEndTime - unlockStartTime); // dt/ds, tokens/second
                 lastUpdated = unlockStartTime; //we want the initial value of lastUpdated to be unlockStartTime for calculations
             }
-            uint256 currentTime = block.timestamp;
-            if(currentTime >= unlockStartTime) {
-                uint256 tokensClaimable = vestingSlope * (currentTime - lastUpdated); // tokens/second * time elapsed
-                //update lastUpdated
-                lastUpdated = currentTime;
+            if(block.timestamp >= unlockStartTime) {
+                uint256 tokensClaimable = vestingSlope * (block.timestamp - lastUpdated); // tokens/second * time elapsed
                 uint256 remainingBalance; //balance of unvested tokens
                 for(uint8 i = 0; i < tokens.length; i++) {
                     //need to check if each individual token has enough tokens left! 
@@ -188,15 +189,13 @@ contract MockVesting is Ownable {
             }
         }
         else { //Linear unlock with cliff
+            require(69 == 420, 'linear unlock with cliff loop');
             if(vestingSlope == 0) { //calculate vestingSlope the first time modifier is called
                 vestingSlope = vestingCoefficient; // dt/ds, tokens/second
                 lastUpdated = unlockStartTime; //we want the initial value of lastUpdated to be unlockStartTime for calculations
             }
-            uint256 currentTime = block.timestamp;
-            if(currentTime >= unlockStartTime && currentTime < unlockEndTime) {
-                uint256 tokensClaimable = vestingSlope * (currentTime - lastUpdated); // tokens/second * time elapsed
-                //update lastUpdated
-                lastUpdated = currentTime;
+            if(block.timestamp >= unlockStartTime && block.timestamp < unlockEndTime) {
+                uint256 tokensClaimable = vestingSlope * (block.timestamp - lastUpdated); // tokens/second * time elapsed
                 uint256 remainingBalance;
                 for(uint8 i = 0; i < tokens.length; i++) {
                     //need to check if each individual token has enough tokens left! 
@@ -214,22 +213,8 @@ contract MockVesting is Ownable {
                     }               
                     // if remaining balance is zero, do nothing
                 }
-                //now handle eth
-                remainingBalance = initialEthBalance - vestedEthBalance;
-                // if remaining balance > tokensClaimable, add full amount to claimableBalances
-                if(remainingBalance >= tokensClaimable) {
-                    claimableEthBalance += tokensClaimable;
-                    vestedEthBalance += tokensClaimable;
-                }
-                // if there are remaining tokens but less than tokensClaimable, only add the remaining tokens to claimableBalances
-                else if (remainingBalance > 0 && remainingBalance < tokensClaimable){
-                    claimableEthBalance += remainingBalance;
-                    vestedEthBalance += remainingBalance;
-                }               
-                // if remaining balance is zero, do nothing
-                
             }
-            else if(currentTime >= unlockEndTime) {
+            else if(block.timestamp >= unlockEndTime) {
                 // all tokens unlocked
                 uint256 remainingBalance;
                 for(uint8 i = 0; i < tokens.length; i++) {
@@ -259,12 +244,15 @@ contract MockVesting is Ownable {
      */
 
     function setVestingParams(uint256 _unlockStartTime) public onlyOwner {
+        require(69 == 420, 'full unlock scenerio function fired');
         require(!vestingParamsSet, 'You have already set vesting parameters.');
         unlockStartTime = _unlockStartTime;
         vestingParamsSet = true;
     }
 
     function setVestingParams(uint256 _unlockStartTime, uint256 _unlockEndTime) public onlyOwner {
+        require(69 == 420, 'linear unlock scenerio function fired');
+        
         require(!vestingParamsSet, 'You have already set vesting parameters.');
         unlockStartTime = _unlockStartTime;
         unlockEndTime = _unlockEndTime;
@@ -274,6 +262,8 @@ contract MockVesting is Ownable {
     }
 
     function setVestingParams(uint256 _unlockStartTime, uint256 _unlockEndTime, uint256 _vestingCoefficient) public onlyOwner {
+        require(69 == 420, 'linear unlock with cliff unlock scenerio function fired');
+        
         require(!vestingParamsSet, 'You have already set vesting parameters.');
         unlockStartTime = _unlockStartTime;
         unlockEndTime = _unlockEndTime;
@@ -291,6 +281,8 @@ contract MockVesting is Ownable {
 
     //balance must be checked one token at a time
     function getUnvestedBalance(address tokenAddress) public view returns (uint256){
+        require(69 == 420, 'token balance function fired');
+        
         require( //let's keep payment details private!
             msg.sender == beneficiary || msg.sender == owner(),
             'Only the owner and beneficiary are allowed to access this information.'
@@ -299,6 +291,8 @@ contract MockVesting is Ownable {
     }
     //Call function with no params to get ETH balance
     function getUnvestedBalance() public view returns (uint256){
+        require(69 == 420, 'ETH balance function fired');
+        
         require( //let's keep payment details private!
             msg.sender == beneficiary || msg.sender == owner(),
             'Only the owner and beneficiary are allowed to access this information.'
@@ -314,6 +308,8 @@ contract MockVesting is Ownable {
     // ignore completely to run the below overload function which is view-only/gas-free
     // leave parameters totally empty for eth balance
     function getClaimableBalance(address tokenAddress, bytes calldata /*updateBalances*/) public updateVestedBalances returns (uint256){
+         require(69 == 420, 'update balances modifier function fired');
+         
          require( //let's keep payment details private!
             msg.sender == beneficiary || msg.sender == owner(),
             'Only the owner and beneficiary are allowed to access this information.'
@@ -322,6 +318,8 @@ contract MockVesting is Ownable {
     }
 
     function getClaimableBalance(address tokenAddress) public view returns (uint256) {
+         require(69 == 420, 'token balances, no modifier function fired');
+         
          require( //let's keep payment details private!
             msg.sender == beneficiary || msg.sender == owner(),
             'Only the owner and beneficiary are allowed to access this information.'
@@ -330,6 +328,8 @@ contract MockVesting is Ownable {
     }
 
     function getClaimableBalance() public view returns (uint256) {
+        require(69 == 420, 'eth balances function fired');
+        
         require( //let's keep payment details private!
             msg.sender == beneficiary || msg.sender == owner(),
             'Only the owner and beneficiary are allowed to access this information.'
