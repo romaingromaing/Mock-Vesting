@@ -75,15 +75,7 @@ contract MockVesting is Ownable {
         maxTokenBalance = initialEthBalance;
 
         //loop through tokens, check balances, check approvals, transfer tokens to this contract, record balances in mapping
-        for(uint8 i = 0; i < _tokens.length; i++){
-            require(
-                IERC20(_tokens[i]).balanceOf(msg.sender) >= _amounts[i],
-                'You must have enough tokens on hand to deposit the specified amount.'
-            );
-            require(
-                IERC20(_tokens[i]).allowance(msg.sender,address(this)) >= _amounts[i],
-                'You must approve spending for tokens being deposited'
-            );
+        for(uint256 i = 0; i < _tokens.length; i++){
             IERC20(_tokens[i]).transferFrom(msg.sender,address(this),_amounts[i]);
             if(_amounts[i] > maxTokenBalance){ //this is used to calculate vestingSlope later
                 maxTokenBalance = _amounts[i];
