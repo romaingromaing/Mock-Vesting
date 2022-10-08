@@ -88,7 +88,11 @@ contract MockVesting is Ownable {
             if(_amounts[i] > maxTokenBalance){ //this is used to calculate vestingSlope later
                 maxTokenBalance = _amounts[i];
             }
-            initialBalances[_tokens[i]] = _amounts[i];
+            initialBalances[_tokens[i]] += _amounts[i];
+            //using += instead of = to account for scenerio where somebody
+            //uses the same token address twice in the _tokens array. As long as they have
+            //tokens available, we'll accept that. And since default value for mapping is zero,
+            //+= is essentially the same as = for new token deposits.
         }
         // toggle isFunded so fund() can't be called again
         isFunded = true;
