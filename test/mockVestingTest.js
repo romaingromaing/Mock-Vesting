@@ -97,20 +97,6 @@ describe('Mock Vesting Unit Tests', () => {
                     'Be sure to specify an amount for each token being deposited!'
                 );
             })
-            it('requires you to have enough tokens to deposit', async () => {
-                //try to feed in an amount for token2 that is too high
-                tokenAmountsArray[1] += 100000000;
-                await expect(deployerMockVesting['fund(address[],uint256[])'](tokenAddressArray, tokenAmountsArray)).to.be.revertedWith(
-                    'You must have enough tokens on hand to deposit the specified amount.'
-                );
-            }) 
-            it('requires you to have adequate spend permissions', async () => {
-                //Reduce spend approval to zero for token 2
-                await mockToken2.approve(deployerMockVesting.address,0);
-                await expect(deployerMockVesting['fund(address[],uint256[])'](tokenAddressArray, tokenAmountsArray)).to.be.revertedWith(
-                    'You must approve spending for tokens being deposited'
-                );
-            })
             it('correctly sets initialBalances mapping values', async () => {
                 const tx = await deployerMockVesting['fund(address[],uint256[])'](tokenAddressArray,tokenAmountsArray);
                 await tx.wait(1);
@@ -448,7 +434,15 @@ describe('Mock Vesting Unit Tests', () => {
                             expectedClaimableToken3Balance <= actualClaimableToken3Balance + errorMargin
                         )
                         lastTimestamp = currentTimestamp;
-                        await userMockVesting.withdraw();
+                        if(actualClaimableToken1Balance > 0){
+                            await userMockVesting['withdraw(address)'](tokenAddressArray[0]);
+                        }
+                        if(actualClaimableToken2Balance > 0){
+                            await userMockVesting['withdraw(address)'](tokenAddressArray[1]);
+                        }
+                        if(actualClaimableToken3Balance > 0){
+                            await userMockVesting['withdraw(address)'](tokenAddressArray[2]);
+                        }
                     }
                 })
                 it('has all tokens unlocked by unlock end time', async () => {
@@ -718,7 +712,6 @@ describe('Mock Vesting Unit Tests', () => {
                             token3RemainingBalance -= token3RemainingBalance;
                         }
                        
-
                         //allowing a range because the timestamps can be slightly out of sync
                         //due to the time it takes for transactions to execute
                         errorMargin = vestingSlope * 2 ; //2 second margin of error
@@ -732,7 +725,15 @@ describe('Mock Vesting Unit Tests', () => {
                             expectedClaimableToken3Balance <= actualClaimableToken3Balance + errorMargin
                         )
                         lastTimestamp = currentTimestamp;
-                        await userMockVesting.withdraw();
+                        if(actualClaimableToken1Balance > 0){
+                            await userMockVesting['withdraw(address)'](tokenAddressArray[0]);
+                        }
+                        if(actualClaimableToken2Balance > 0){
+                            await userMockVesting['withdraw(address)'](tokenAddressArray[1]);
+                        }
+                        if(actualClaimableToken3Balance > 0){
+                            await userMockVesting['withdraw(address)'](tokenAddressArray[2]);
+                        }
                     }
                 })
                 it('unlocks all tokens if end time has been reached', async () => {
@@ -764,14 +765,14 @@ describe('Mock Vesting Unit Tests', () => {
         })
         describe('Withdraw function', () => {
             it('Can only be called by the beneficiary', async () => {
-                await expect(deployerMockVesting.withdraw()).to.be.revertedWith(
+                await expect(deployerMockVesting['withdraw()']()).to.be.revertedWith(
                     'Only the beneficiary can withdraw tokens.'
                 );
-                await expect(thirdPartyMockVesting.withdraw()).to.be.revertedWith(
+                await expect(thirdPartyMockVesting['withdraw()']()).to.be.revertedWith(
                     'Only the beneficiary can withdraw tokens.'
                 );
             })
-            it('does nothing if there are no tokens to claim', async () => {    
+            it('reverts if there are no tokens or ETH or be claimed', async () => {    
                 // Set vesting start time in the future
                 const currentTimestamp = (await hre.ethers.provider.getBlock("latest")).timestamp;
                 await deployerMockVesting['setVestingParams(uint256)'](currentTimestamp + 100000);
@@ -782,26 +783,12 @@ describe('Mock Vesting Unit Tests', () => {
                 await tx.wait(1);
                 assert.isTrue(await deployerMockVesting.isFunded());
                 
-                //division/floor to because gasUsed used Gwei isntead of wei
-                const initialEthBalance = Math.floor((await user.getBalance())/(10**9));
-
-                //call withdraw()
-                const tx2 = await userMockVesting.withdraw();
-                tx2Receipt = await tx2.wait(1);
-
-                const gasUsed = (tx2Receipt.gasUsed).toNumber();
-
-                const finalEthBalance = Math.floor((await user.getBalance())/(10**9));
-                const userToken1Balance = (await mockToken1.balanceOf(user.address)).toString();
-                const userToken2Balance = (await mockToken2.balanceOf(user.address)).toString();
-                const userToken3Balance = (await mockToken3.balanceOf(user.address)).toString();
-
-                
-
-                assert.equal(initialEthBalance, (finalEthBalance + gasUsed)) //these are equal, for some reason gasUsed is less precise by a number of digits
-                assert.equal(userToken1Balance, 0);
-                assert.equal(userToken2Balance, 0);
-                assert.equal(userToken3Balance, 0);
+                await expect(userMockVesting['withdraw(address)'](tokenAddressArray[0])).to.be.revertedWith(
+                    'That token has no claimable balance.'
+                );
+                await expect(userMockVesting['withdraw()']()).to.be.revertedWith(
+                    'There is no ETH available to claim.'
+                )
             })
             it('allows all tokens to be withdrawn if fully vested', async () => {
                 // Set vesting start time in the past
@@ -818,9 +805,20 @@ describe('Mock Vesting Unit Tests', () => {
                 const initialEthBalance = Math.floor((await user.getBalance())/(10**9));
 
                 //call withdraw()
-                const tx2 = await userMockVesting.withdraw();
+                const tx2 = await userMockVesting['withdraw(address,bytes)'](tokenAddressArray[0],69420);
+                const tx3 = await userMockVesting['withdraw(address)'](tokenAddressArray[1]);
+                const tx4 = await userMockVesting['withdraw(address)'](tokenAddressArray[2]);
+                const tx5 = await userMockVesting['withdraw()']();
                 const tx2Receipt = await tx2.wait(1);
-                const gasUsed = (tx2Receipt.gasUsed).toNumber();
+                const tx3Receipt = await tx3.wait(1);
+                const tx4Receipt = await tx4.wait(1);
+                const tx5Receipt = await tx5.wait(1);
+                const gasUsed = (
+                    (tx2Receipt.gasUsed).toNumber() + 
+                    (tx3Receipt.gasUsed).toNumber() + 
+                    (tx4Receipt.gasUsed).toNumber() +
+                    (tx5Receipt.gasUsed).toNumber() 
+                );
 
                 const finalEthBalance = Math.floor((await user.getBalance())/(10**9));
                 const userToken1Balance = (await mockToken1.balanceOf(user.address)).toString();

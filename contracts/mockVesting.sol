@@ -96,22 +96,32 @@ contract MockVesting is Ownable {
     // Withdraw //
     //////////////
 
-    //withdraw all available vested tokens
-    function withdraw() public updateVestedBalances {
+    //withdraw all claimable balance of a selected token
+    //include 2nd param to run updateBalance modifier (typically for the first token you're withdrawing)
+    //include only token address to skip updateBalances
+    //leave params blank to claim ETH
+    function withdraw(address token, bytes calldata /*updateBalance*/) public updateVestedBalances {
         require(msg.sender == beneficiary, 'Only the beneficiary can withdraw tokens.');
-        uint256 amount;
-        for(uint8 i = 0; i < tokens.length; i++) {
-            amount = claimableBalances[tokens[i]];
-            claimableBalances[tokens[i]] = 0;
-            IERC20(tokens[i]).transfer(msg.sender, amount);
-        }
-        //also need to account for vested eth if there is any.
-        if(claimableEthBalance > 0) {
-            //send eth to beneficiary
-            amount = claimableEthBalance; 
-            claimableEthBalance = 0;
-            payable(msg.sender).transfer(amount);
-        }
+        require(claimableBalances[token] > 0, 'That token has no claimable balance.');
+        uint256 amount = claimableBalances[token];
+        claimableBalances[token] = 0;
+        IERC20(token).transfer(msg.sender, amount);
+    }
+
+    function withdraw(address token) public {
+        require(msg.sender == beneficiary, 'Only the beneficiary can withdraw tokens.');
+        require(claimableBalances[token] > 0, 'That token has no claimable balance.');
+        uint256 amount = claimableBalances[token];
+        claimableBalances[token] = 0;
+        IERC20(token).transfer(msg.sender, amount);
+    }
+
+    function withdraw() public {
+        require(msg.sender == beneficiary, 'Only the beneficiary can withdraw tokens.');
+        require(claimableEthBalance > 0, 'There is no ETH available to claim.');
+        uint256 amount = claimableEthBalance; 
+        claimableEthBalance = 0;
+        payable(msg.sender).transfer(amount);
     }
 
     ////////////////////////////
@@ -126,17 +136,14 @@ contract MockVesting is Ownable {
         //if both are unset, do a full, instant unlock at unlockStartTime
         if(unlockEndTime == 0 && vestingCoefficient == 0){
             if(block.timestamp >= unlockStartTime) {
-                for(uint8 i = 0; i < tokens.length; i++) {
-                    claimableBalances[tokens[i]] = initialBalances[tokens[i]];
-                    vestedBalances[tokens[i]] = claimableBalances[tokens[i]];
-                }
-                claimableEthBalance = initialEthBalance;
-                vestedEthBalance = claimableEthBalance;
+                handleFullyVested();
             }
         }
         // if unlockEndTime is nonzero but vestingCoefficient is zero, 
         // linear unlock without cliff
-        else if(vestingCoefficient == 0){
+        else if(vestingCoefficient == 0){/*vestingSlope and vestingCoefficient are separated out so that this 
+                                          *if statement will still trigger (i.e. vestingCoefficient will remain zero)
+                                          *after the slope is calculated below*/
             if(vestingSlope == 0) { //calculate vestingSlope the first time modifier is called
                 vestingSlope = maxTokenBalance / (unlockEndTime - unlockStartTime); // dt/ds, tokens/second
                 lastUpdated = unlockStartTime; //we want the initial value of lastUpdated to be unlockStartTime for calculations
@@ -146,37 +153,9 @@ contract MockVesting is Ownable {
                 uint256 tokensClaimable = vestingSlope * (currentTime - lastUpdated); // tokens/second * time elapsed
                 //update lastUpdated
                 lastUpdated = currentTime;
-                uint256 remainingBalance; //balance of unvested tokens
-                for(uint8 i = 0; i < tokens.length; i++) {
-                    //need to check if each individual token has enough tokens left! 
-                    //Tokens with starting balances below the max will run out before the unlockEndTime
-                    remainingBalance = initialBalances[tokens[i]] - vestedBalances[tokens[i]];
-                    // if remaining balance > tokensClaimable, add full amount to claimableBalances
-                    if(remainingBalance >= tokensClaimable) {
-                        claimableBalances[tokens[i]] += tokensClaimable;
-                        vestedBalances[tokens[i]] += tokensClaimable;
-                    }
-                    // if there are remaining tokens but less than tokensClaimable, only add the remaining tokens to claimableBalances
-                    else if (remainingBalance > 0 && remainingBalance < tokensClaimable){
-                        claimableBalances[tokens[i]] += remainingBalance;
-                        vestedBalances[tokens[i]] += remainingBalance;
-                    }               
-                    // if remaining balance is zero, do nothing
-                }
-                //now handle eth
-                remainingBalance = initialEthBalance - vestedEthBalance;
-                // if remaining balance > tokensClaimable, add full amount to claimableBalances
-                if(remainingBalance >= tokensClaimable) {
-                    claimableEthBalance += tokensClaimable;
-                    vestedEthBalance += tokensClaimable;
-                }
-                // if there are remaining tokens but less than tokensClaimable, only add the remaining tokens to claimableBalances
-                else if (remainingBalance > 0 && remainingBalance < tokensClaimable){
-                    claimableEthBalance += remainingBalance;
-                    vestedEthBalance += remainingBalance;
-                }               
-                // if remaining balance is zero, do nothing
 
+                handleTokenAccrual(tokensClaimable);
+                handleEthAccrual(tokensClaimable);
             }
         }
         else { //Linear unlock with cliff
@@ -189,48 +168,12 @@ contract MockVesting is Ownable {
                 uint256 tokensClaimable = vestingSlope * (currentTime - lastUpdated); // tokens/second * time elapsed
                 //update lastUpdated
                 lastUpdated = currentTime;
-                uint256 remainingBalance;
-                for(uint8 i = 0; i < tokens.length; i++) {
-                    //need to check if each individual token has enough tokens left! 
-                    //Tokens with starting balances below the max will run out before the unlockEndTime
-                    remainingBalance = initialBalances[tokens[i]] - vestedBalances[tokens[i]];
-                    // if remaining balance > tokensClaimable, add full amount to claimableBalances
-                    if(remainingBalance >= tokensClaimable) {
-                        claimableBalances[tokens[i]] += tokensClaimable;
-                        vestedBalances[tokens[i]] += tokensClaimable;
-                    }
-                    // if there are remaining tokens but less than tokensClaimable, only add the remaining tokens to claimableBalances
-                    else if (remainingBalance > 0 && remainingBalance < tokensClaimable){
-                        claimableBalances[tokens[i]] += remainingBalance;
-                        vestedBalances[tokens[i]] += remainingBalance;
-                    }               
-                    // if remaining balance is zero, do nothing
-                }
-                //now handle eth
-                remainingBalance = initialEthBalance - vestedEthBalance;
-                // if remaining balance > tokensClaimable, add full amount to claimableBalances
-                if(remainingBalance >= tokensClaimable) {
-                    claimableEthBalance += tokensClaimable;
-                    vestedEthBalance += tokensClaimable;
-                }
-                // if there are remaining tokens but less than tokensClaimable, only add the remaining tokens to claimableBalances
-                else if (remainingBalance > 0 && remainingBalance < tokensClaimable){
-                    claimableEthBalance += remainingBalance;
-                    vestedEthBalance += remainingBalance;
-                }               
-                // if remaining balance is zero, do nothing
-                
+
+                handleTokenAccrual(tokensClaimable);
+                handleEthAccrual(tokensClaimable);
             }
             else if(currentTime >= unlockEndTime) {
-                // all tokens unlocked
-                uint256 remainingBalance;
-                for(uint8 i = 0; i < tokens.length; i++) {
-                    remainingBalance = initialBalances[tokens[i]] - vestedBalances[tokens[i]];
-                    claimableBalances[tokens[i]] += remainingBalance;
-                    vestedBalances[tokens[i]] += remainingBalance;
-                }
-                claimableEthBalance += initialEthBalance - vestedEthBalance;
-                vestedEthBalance = initialEthBalance; //difference between initial and vested should now be zero
+                handleFullyVested();
             }
         }
         _;
@@ -329,5 +272,58 @@ contract MockVesting is Ownable {
         return claimableEthBalance;
     }
 
+    //////////////////////
+    // Helper Functions // functions to modularize parts of the updateVestingBalances modifier
+    //////////////////////
 
+    //loops through tokens and adds to balances where necessary
+    //called within the updateBalances modifier
+    function handleTokenAccrual(uint256 tokensClaimable) internal {
+        for(uint256 i = 0; i < tokens.length; i++) {
+            //need to check if each individual token has enough tokens left! 
+            //Tokens with starting balances below the max will run out before the unlockEndTime
+            uint256 remainingBalance = initialBalances[tokens[i]] - vestedBalances[tokens[i]];
+            // if remaining balance > tokensClaimable, add full amount to claimableBalances
+            if(remainingBalance >= tokensClaimable) {
+                claimableBalances[tokens[i]] += tokensClaimable;
+                vestedBalances[tokens[i]] += tokensClaimable;
+            }
+            // if there are remaining tokens but less than tokensClaimable, only add the remaining tokens to claimableBalances
+            else if (remainingBalance > 0 && remainingBalance < tokensClaimable){
+                claimableBalances[tokens[i]] += remainingBalance;
+                vestedBalances[tokens[i]] += remainingBalance;
+            }               
+            // if remaining balance is zero, do nothing
+        }
+    }
+
+    //same as above but for ETH
+    function handleEthAccrual(uint256 tokensClaimable) internal {
+        uint256 remainingBalance = initialEthBalance - vestedEthBalance;
+        // if remaining balance > tokensClaimable, add full amount to claimableBalances
+        if(remainingBalance >= tokensClaimable) {
+            claimableEthBalance += tokensClaimable;
+            vestedEthBalance += tokensClaimable;
+        }
+        // if there are remaining tokens but less than tokensClaimable, only add the remaining tokens to claimableBalances
+        else if (remainingBalance > 0 && remainingBalance < tokensClaimable){
+            claimableEthBalance += remainingBalance;
+            vestedEthBalance += remainingBalance;
+        }               
+        // if remaining balance is zero, do nothing
+    }
+
+    //unlocks all remaining tokens
+    //called when unlockEndTime has passed
+    function handleFullyVested() internal {
+        uint256 remainingBalance;
+        for(uint8 i = 0; i < tokens.length; i++) {
+            remainingBalance = initialBalances[tokens[i]] - vestedBalances[tokens[i]];
+            claimableBalances[tokens[i]] += remainingBalance;
+            vestedBalances[tokens[i]] += remainingBalance;
+        }
+        claimableEthBalance += initialEthBalance - vestedEthBalance;
+        vestedEthBalance = initialEthBalance; //difference between initial and vested should now be zero
+            
+    }
 }
