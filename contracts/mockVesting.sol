@@ -65,7 +65,7 @@ contract MockVesting is Ownable {
     //////////
 
     //native ETH vesting optional - simply include a msg.value when calling fund()
-    function fund(address[] calldata _tokens, uint256[] calldata _amounts) public payable onlyOwner {
+    function fund(address[] calldata _tokens, uint256[] calldata _amounts) external payable onlyOwner {
         require(!isFunded, 'Contract has already been funded.');
         require(vestingParamsSet, 'Please set vesting parameters before funding.');
         require(_tokens.length == _amounts.length, 'Be sure to specify an amount for each token being deposited!');
@@ -100,7 +100,7 @@ contract MockVesting is Ownable {
     //include 2nd param to run updateBalance modifier (typically for the first token you're withdrawing)
     //include only token address to skip updateBalances
     //leave params blank to claim ETH
-    function withdraw(address token, bytes calldata /*updateBalance*/) public updateVestedBalances {
+    function withdraw(address token, bytes calldata /*updateBalance*/) external updateVestedBalances {
         require(msg.sender == beneficiary, 'Only the beneficiary can withdraw tokens.');
         require(claimableBalances[token] > 0, 'That token has no claimable balance.');
         uint256 amount = claimableBalances[token];
@@ -108,7 +108,7 @@ contract MockVesting is Ownable {
         IERC20(token).transfer(msg.sender, amount);
     }
 
-    function withdraw(address token) public {
+    function withdraw(address token) external{
         require(msg.sender == beneficiary, 'Only the beneficiary can withdraw tokens.');
         require(claimableBalances[token] > 0, 'That token has no claimable balance.');
         uint256 amount = claimableBalances[token];
@@ -116,7 +116,7 @@ contract MockVesting is Ownable {
         IERC20(token).transfer(msg.sender, amount);
     }
 
-    function withdraw() public {
+    function withdraw() external {
         require(msg.sender == beneficiary, 'Only the beneficiary can withdraw tokens.');
         require(claimableEthBalance > 0, 'There is no ETH available to claim.');
         uint256 amount = claimableEthBalance; 
@@ -193,13 +193,13 @@ contract MockVesting is Ownable {
      * - note that all times are calculated as # of seconds since unix epoch (00:00:00 UTC on 1 January 1970)
      */
 
-    function setVestingParams(uint256 _unlockStartTime) public onlyOwner {
+    function setVestingParams(uint256 _unlockStartTime) external onlyOwner {
         require(!vestingParamsSet, 'You have already set vesting parameters.');
         unlockStartTime = _unlockStartTime;
         vestingParamsSet = true;
     }
 
-    function setVestingParams(uint256 _unlockStartTime, uint256 _unlockEndTime) public onlyOwner {
+    function setVestingParams(uint256 _unlockStartTime, uint256 _unlockEndTime) external onlyOwner {
         require(!vestingParamsSet, 'You have already set vesting parameters.');
         unlockStartTime = _unlockStartTime;
         unlockEndTime = _unlockEndTime;
@@ -208,7 +208,7 @@ contract MockVesting is Ownable {
         vestingParamsSet = true;
     }
 
-    function setVestingParams(uint256 _unlockStartTime, uint256 _unlockEndTime, uint256 _vestingCoefficient) public onlyOwner {
+    function setVestingParams(uint256 _unlockStartTime, uint256 _unlockEndTime, uint256 _vestingCoefficient) external onlyOwner {
         require(!vestingParamsSet, 'You have already set vesting parameters.');
         unlockStartTime = _unlockStartTime;
         unlockEndTime = _unlockEndTime;
@@ -225,7 +225,7 @@ contract MockVesting is Ownable {
     //////////////////////////
 
     //balance must be checked one token at a time
-    function getUnvestedBalance(address tokenAddress) public view returns (uint256){
+    function getUnvestedBalance(address tokenAddress) external view returns (uint256){
         require( //let's keep payment details private!
             msg.sender == beneficiary || msg.sender == owner(),
             'Only the owner and beneficiary are allowed to access this information.'
@@ -233,7 +233,7 @@ contract MockVesting is Ownable {
         return initialBalances[tokenAddress] - vestedBalances[tokenAddress];
     }
     //Call function with no params to get ETH balance
-    function getUnvestedBalance() public view returns (uint256){
+    function getUnvestedBalance() external view returns (uint256){
         require( //let's keep payment details private!
             msg.sender == beneficiary || msg.sender == owner(),
             'Only the owner and beneficiary are allowed to access this information.'
@@ -248,7 +248,7 @@ contract MockVesting is Ownable {
     // put anything into the updateBalances slot to have it run the updateBalance modifier
     // ignore completely to run the below overload function which is view-only/gas-free
     // leave parameters totally empty for eth balance
-    function getClaimableBalance(address tokenAddress, bytes calldata /*updateBalances*/) public updateVestedBalances returns (uint256){
+    function getClaimableBalance(address tokenAddress, bytes calldata /*updateBalances*/) external updateVestedBalances returns (uint256){
          require( //let's keep payment details private!
             msg.sender == beneficiary || msg.sender == owner(),
             'Only the owner and beneficiary are allowed to access this information.'
@@ -256,7 +256,7 @@ contract MockVesting is Ownable {
         return claimableBalances[tokenAddress];
     }
 
-    function getClaimableBalance(address tokenAddress) public view returns (uint256) {
+    function getClaimableBalance(address tokenAddress) external view returns (uint256) {
          require( //let's keep payment details private!
             msg.sender == beneficiary || msg.sender == owner(),
             'Only the owner and beneficiary are allowed to access this information.'
@@ -264,7 +264,7 @@ contract MockVesting is Ownable {
         return claimableBalances[tokenAddress];
     }
 
-    function getClaimableBalance() public view returns (uint256) {
+    function getClaimableBalance() external view returns (uint256) {
         require( //let's keep payment details private!
             msg.sender == beneficiary || msg.sender == owner(),
             'Only the owner and beneficiary are allowed to access this information.'
